@@ -1,0 +1,135 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+  --font-display: 'Cal Sans', var(--font-sans);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(165 180 252) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: rgb(199 210 254);
+  border-radius: 999px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: rgb(165 180 252);
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.status-approved {
+  @apply text-green-600 bg-green-50;
+}
+
+.status-rejected {
+  @apply text-red-600 bg-red-50;
+}
+
+.status-pending {
+  @apply text-yellow-600 bg-yellow-50;
+}
+
+/* ---------- Glassmorphism design system ---------- */
+
+.glass-card {
+  @apply relative bg-white/70 backdrop-blur-xl border border-white/60 shadow-glass rounded-3xl;
+}
+
+.glass-card-dark {
+  @apply relative bg-white/10 backdrop-blur-xl border border-white/20 shadow-glass-lg rounded-3xl;
+}
+
+.glass-input {
+  @apply bg-white/60 backdrop-blur-sm border border-slate-200/80 rounded-xl transition
+    focus:bg-white focus:border-indigo-400 focus:ring-4 focus:ring-indigo-100 outline-none;
+}
+
+.glass-pill {
+  @apply bg-white/60 backdrop-blur-sm border border-slate-200/80 rounded-full transition;
+}
+
+.btn-gradient {
+  @apply relative overflow-hidden bg-gradient-to-r from-indigo-600 via-violet-600 to-fuchsia-600
+    bg-[length:200%_auto] text-white font-semibold shadow-lg shadow-indigo-500/30
+    transition-all duration-500 hover:bg-[position:100%_0] hover:shadow-glow
+    active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:shadow-lg;
+}
+
+/* Animated gradient-mesh background blobs used behind the app shell */
+.bg-blob {
+  @apply absolute rounded-full mix-blend-multiply filter blur-3xl opacity-40 animate-blob;
+}
+
+/* Custom range slider thumb styling (glassy indigo) */
+input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(to right, #6366f1 var(--range-progress, 50%), #e2e8f0 var(--range-progress, 50%));
+  outline: none;
+}
+
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: white;
+  border: 3px solid #6366f1;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.4);
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+
+input[type='range']::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+
+input[type='range']::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: white;
+  border: 3px solid #6366f1;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.4);
+  cursor: pointer;
+}
+
+input[type='range']::-moz-range-track {
+  height: 6px;
+  border-radius: 999px;
+  background: #e2e8f0;
+}
+
+/* Shimmer skeleton effect */
+.shimmer {
+  background: linear-gradient(90deg, #f1f5f9 0%, #e2e8f0 50%, #f1f5f9 100%);
+  background-size: 1000px 100%;
+  animation: shimmer 2.5s infinite linear;
+}

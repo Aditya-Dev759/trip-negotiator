@@ -1,0 +1,34 @@
+{
+  "visaRequirements": {
+    "japan": {
+      "usaCitizen": "visa-free-90-days",
+      "minStay": 1,
+      "documentation": "Passport valid 6+ months"
+    },
+    "france": {
+      "usaCitizen": "visa-free-90-days-schengen",
+      "minStay": 1,
+      "documentation": "Passport valid 6+ months"
+    },
+    "indonesia": {
+      "usaCitizen": "visa-on-arrival-30-days",
+      "minStay": 1,
+      "documentation": "Passport valid 6+ months, return ticket"
+    },
+    "usa": {
+      "usaCitizen": "resident",
+      "minStay": 0,
+      "documentation": "ID/Passport"
+    },
+    "thailand": {
+      "usaCitizen": "visa-free-30-days",
+      "minStay": 1,
+      "documentation": "Passport valid 6+ months"
+    },
+    "spain": {
+      "usaCitizen": "visa-free-90-days-schengen",
+      "minStay": 1,
+      "documentation": "Passport valid 6+ months"
+    }
+  }
+}

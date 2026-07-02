@@ -1,0 +1,64 @@
+{
+  "destinations": [
+    {
+      "id": "tokyo",
+      "name": "Tokyo",
+      "country": "Japan",
+      "description": "Capital of Japan with modern tech and traditional culture",
+      "tags": ["cultural", "food", "shopping", "nightlife"],
+      "avgDaily": 150,
+      "bestMonths": ["Mar-May", "Sep-Nov"],
+      "timezone": "JST"
+    },
+    {
+      "id": "paris",
+      "name": "Paris",
+      "country": "France",
+      "description": "City of light with museums, gardens, and cuisine",
+      "tags": ["cultural", "romantic", "museums", "food"],
+      "avgDaily": 180,
+      "bestMonths": ["Apr-Jun", "Sep-Oct"],
+      "timezone": "CET"
+    },
+    {
+      "id": "bali",
+      "name": "Bali",
+      "country": "Indonesia",
+      "description": "Tropical island with beaches, temples, and rice terraces",
+      "tags": ["beach", "nature", "temples", "adventure"],
+      "avgDaily": 80,
+      "bestMonths": ["Apr-Oct"],
+      "timezone": "WIB"
+    },
+    {
+      "id": "nyc",
+      "name": "New York City",
+      "country": "USA",
+      "description": "The city that never sleeps with world-class attractions",
+      "tags": ["nightlife", "shopping", "museums", "food"],
+      "avgDaily": 200,
+      "bestMonths": ["May-Jun", "Sep-Oct"],
+      "timezone": "EST"
+    },
+    {
+      "id": "bangkok",
+      "name": "Bangkok",
+      "country": "Thailand",
+      "description": "Vibrant capital with temples, markets, and street food",
+      "tags": ["cultural", "food", "nightlife", "shopping"],
+      "avgDaily": 70,
+      "bestMonths": ["Nov-Feb"],
+      "timezone": "ICT"
+    },
+    {
+      "id": "barcelona",
+      "name": "Barcelona",
+      "country": "Spain",
+      "description": "Mediterranean city with architecture, beaches, and tapas",
+      "tags": ["beach", "architecture", "food", "nightlife"],
+      "avgDaily": 130,
+      "bestMonths": ["May-Jun", "Sep-Oct"],
+      "timezone": "CET"
+    }
+  ]
+}

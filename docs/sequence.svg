@@ -1,0 +1,142 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 1080" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#334155"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="1240" height="1080" fill="#ffffff"/>
+  <text x="620" y="28" text-anchor="middle" font-size="20" font-weight="700" fill="#1e293b">TripNegotiator -- Negotiation Sequence</text>
+
+  <!-- Lifeline headers -->
+  <g font-size="12" font-weight="700" fill="#1e293b" text-anchor="middle">
+    <text x="80" y="60">Traveler</text>
+    <text x="260" y="60">Frontend</text>
+    <text x="460" y="60">API GW +</text>
+    <text x="460" y="74">Lambda(api)</text>
+    <text x="660" y="60">Step</text>
+    <text x="660" y="74">Functions</text>
+    <text x="860" y="60">Agent</text>
+    <text x="860" y="74">Lambdas</text>
+    <text x="1040" y="60">DynamoDB</text>
+    <text x="1180" y="60">Groq /</text>
+    <text x="1180" y="74">ddgs</text>
+  </g>
+
+  <!-- Lifelines -->
+  <g stroke="#cbd5e1" stroke-width="1.5">
+    <line x1="80" y1="85" x2="80" y2="1040"/>
+    <line x1="260" y1="85" x2="260" y2="1040"/>
+    <line x1="460" y1="85" x2="460" y2="1040"/>
+    <line x1="660" y1="85" x2="660" y2="1040"/>
+    <line x1="860" y1="85" x2="860" y2="1040"/>
+    <line x1="1040" y1="85" x2="1040" y2="1040"/>
+    <line x1="1180" y1="85" x2="1180" y2="1040"/>
+  </g>
+
+  <!-- helper text style -->
+  <g font-size="11" fill="#334155">
+
+    <!-- 1 -->
+    <line x1="80" y1="110" x2="256" y2="110" stroke="#334155" stroke-width="1.5" marker-end="url(#arr)"/>
+    <text x="88" y="104">1. Fill trip form (dest, budget, age, interests...), submit</text>
+
+    <!-- 2 -->
+    <line x1="260" y1="140" x2="456" y2="140" stroke="#334155" stroke-width="1.5" marker-end="url(#arr)"/>
+    <text x="268" y="134">2. POST /trips { goal }</text>
+
+    <!-- 3 -->
+    <line x1="460" y1="166" x2="1036" y2="166" stroke="#334155" stroke-width="1.5" marker-end="url(#arr)"/>
+    <text x="468" y="160">3. PutItem META (status=initializing)</text>
+
+    <!-- 4 -->
+    <line x1="460" y1="192" x2="656" y2="192" stroke="#334155" stroke-width="1.5" marker-end="url(#arr)"/>
+    <text x="468" y="186">4. sfn.StartExecution(trip_id, round=1)</text>
+
+    <!-- 5 -->
+    <line x1="456" y1="218" x2="264" y2="218" stroke="#334155" stroke-width="1.5" marker-end="url(#arr)"/>
+    <text x="268" y="212">5. 201 { trip_id, status: "initializing" }</text>
+
+    <!-- 6 -->
+    <line x1="256" y1="244" x2="84" y2="244" stroke="#334155" stroke-width="1.5" marker-end="url(#arr)"/>
+    <text x="88" y="238">6. Show "Negotiating..." screen, begin polling GET /trips/{id} every 2s</text>
+  </g>
+
+  <!-- Loop box: negotiation round -->
+  <rect x="620" y="270" width="600" height="470" fill="none" stroke="#a21caf" stroke-width="1.5" stroke-dasharray="6,4"/>
+  <rect x="620" y="270" width="230" height="24" fill="#fae8ff" stroke="#a21caf" stroke-width="1.5"/>
+  <text x="630" y="287" font-size="11" font-weight="700" fill="#701a75">loop  round = 1..3 until all approved</text>
+
+  <g font-size="11" fill="#334155">
+    <!-- 7 -->
+    <line x1="660" y1="320" x2="856" y2="320" stroke="#334155" stroke-width="1.5" marker-end="url(#arr)"/>
+    <text x="668" y="314">7. Invoke ItineraryAgent(event)</text>
+
+    <!-- 8 -->
+    <line x1="860" y1="344" x2="1176" y2="344" stroke="#334155" stroke-width="1.5" marker-end="url(#arr)"/>
+    <text x="868" y="338">8. web search (ddgs) + Groq LLM call -- destination/weather/interests/guide</text>
+
+    <!-- 9 -->
+    <line x1="860" y1="368" x2="1036" y2="368" stroke="#334155" stroke-width="1.5" marker-end="url(#arr)"/>
+    <text x="868" y="362">9. write itinerary proposal (sources, images)</text>
+
+    <!-- 10 -->
+    <line x1="660" y1="396" x2="856" y2="396" stroke="#334155" stroke-width="1.5" marker-end="url(#arr)"/>
+    <text x="668" y="390">10. Invoke BudgetAgent(event) -- audits cost incl. live flight/lodging search</text>
+
+    <!-- 11 -->
+    <line x1="660" y1="422" x2="856" y2="422" stroke="#334155" stroke-width="1.5" marker-end="url(#arr)"/>
+    <text x="668" y="416">11. Invoke LogisticsAgent(event) -- dated advisory search, fact-checked vs today</text>
+
+    <!-- 12 -->
+    <line x1="660" y1="448" x2="856" y2="448" stroke="#334155" stroke-width="1.5" marker-end="url(#arr)"/>
+    <text x="668" y="442">12. Invoke BookingAgent(event) -- visa requirement check</text>
+
+    <text x="668" y="470" font-size="10" fill="#64748b">(each of 10-12 also calls ddgs/Groq per step 8 and writes its verdict</text>
+    <text x="668" y="483" font-size="10" fill="#64748b">to DynamoDB per step 9, omitted above to keep the diagram readable)</text>
+
+    <!-- 13 choice -->
+    <rect x="640" y="505" width="560" height="60" rx="8" fill="#f5f3ff" stroke="#7c3aed" stroke-width="1.5"/>
+    <text x="660" y="525" font-size="11" font-weight="700" fill="#4c1d95">13. CheckConvergence (Choice state)</text>
+    <text x="660" y="542" font-size="10" fill="#5b21b6">all approved -&gt; exit loop, Finalize   |   round &lt; 3 -&gt; round++, back to step 7</text>
+    <text x="660" y="556" font-size="10" fill="#5b21b6">round == 3 -&gt; exit loop, ForceFinalize (unresolved objections kept, not hidden)</text>
+
+    <!-- 14 -->
+    <line x1="660" y1="600" x2="856" y2="600" stroke="#334155" stroke-width="1.5" marker-end="url(#arr)"/>
+    <text x="668" y="594">14. Invoke Supervisor(event) -- Finalize / ForceFinalize</text>
+
+    <!-- 15 -->
+    <line x1="860" y1="626" x2="1036" y2="626" stroke="#334155" stroke-width="1.5" marker-end="url(#arr)"/>
+    <text x="868" y="620">15. write FINAL record (final_itinerary, unresolved_objections)</text>
+
+    <text x="668" y="700" font-size="10" fill="#64748b">Retry (3x, exponential backoff) + Catch -&gt; HandleError wraps every</text>
+    <text x="668" y="714" font-size="10" fill="#64748b">Task state above (statemachine.asl.json) -- Reliability pillar</text>
+  </g>
+
+  <g font-size="11" fill="#334155">
+    <!-- 16 poll loop -->
+    <rect x="40" y="760" width="1160" height="180" fill="none" stroke="#0284c7" stroke-width="1.5" stroke-dasharray="6,4"/>
+    <rect x="40" y="760" width="230" height="24" fill="#e0f2fe" stroke="#0284c7" stroke-width="1.5"/>
+    <text x="50" y="777" font-size="11" font-weight="700" fill="#075985">loop  frontend polls every 2s (max 300x)</text>
+
+    <line x1="260" y1="810" x2="456" y2="810" stroke="#334155" stroke-width="1.5" marker-end="url(#arr)"/>
+    <text x="268" y="804">16. GET /trips/{id}</text>
+
+    <line x1="460" y1="836" x2="1036" y2="836" stroke="#334155" stroke-width="1.5" marker-end="url(#arr)"/>
+    <text x="468" y="830">17. Query all items for trip_id (META, ROUND#n#..., FINAL)</text>
+
+    <line x1="456" y1="862" x2="264" y2="862" stroke="#334155" stroke-width="1.5" marker-end="url(#arr)"/>
+    <text x="268" y="856">18. 200 { status, rounds[], final_plan }</text>
+
+    <line x1="256" y1="888" x2="84" y2="888" stroke="#334155" stroke-width="1.5" marker-end="url(#arr)"/>
+    <text x="88" y="882">19. Update live negotiation stream UI (per-round verdicts, objections)</text>
+
+    <text x="88" y="912" font-size="10" fill="#0369a1">stops polling once status == "finalized" or "error"</text>
+  </g>
+
+  <g font-size="11" fill="#334155">
+    <line x1="80" y1="970" x2="84" y2="970" stroke="none"/>
+    <text x="88" y="965" font-weight="700">20. Final render: day-by-day itinerary, photo gallery, cost breakdown bars,</text>
+    <text x="88" y="982">source citations per agent, and (if origin/destination country codes are</text>
+    <text x="88" y="999">known) the live exchange rate -- all from the same GET /trips/{id} payload.</text>
+  </g>
+</svg>

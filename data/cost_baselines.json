@@ -1,0 +1,40 @@
+{
+  "costBaselines": {
+    "tokyo": {
+      "accommodation": { "budget": 50, "midrange": 120, "luxury": 300 },
+      "food": { "budget": 15, "midrange": 40, "luxury": 100 },
+      "activities": { "budget": 30, "midrange": 60, "luxury": 150 },
+      "transport": { "budget": 5, "midrange": 15, "luxury": 30 }
+    },
+    "paris": {
+      "accommodation": { "budget": 60, "midrange": 140, "luxury": 350 },
+      "food": { "budget": 20, "midrange": 50, "luxury": 120 },
+      "activities": { "budget": 40, "midrange": 80, "luxury": 200 },
+      "transport": { "budget": 8, "midrange": 20, "luxury": 40 }
+    },
+    "bali": {
+      "accommodation": { "budget": 20, "midrange": 60, "luxury": 200 },
+      "food": { "budget": 5, "midrange": 15, "luxury": 50 },
+      "activities": { "budget": 20, "midrange": 40, "luxury": 100 },
+      "transport": { "budget": 2, "midrange": 5, "luxury": 15 }
+    },
+    "nyc": {
+      "accommodation": { "budget": 100, "midrange": 250, "luxury": 500 },
+      "food": { "budget": 25, "midrange": 60, "luxury": 150 },
+      "activities": { "budget": 50, "midrange": 100, "luxury": 250 },
+      "transport": { "budget": 3, "midrange": 10, "luxury": 25 }
+    },
+    "bangkok": {
+      "accommodation": { "budget": 15, "midrange": 40, "luxury": 150 },
+      "food": { "budget": 3, "midrange": 10, "luxury": 40 },
+      "activities": { "budget": 15, "midrange": 30, "luxury": 80 },
+      "transport": { "budget": 1, "midrange": 3, "luxury": 10 }
+    },
+    "barcelona": {
+      "accommodation": { "budget": 45, "midrange": 110, "luxury": 300 },
+      "food": { "budget": 15, "midrange": 40, "luxury": 100 },
+      "activities": { "budget": 35, "midrange": 70, "luxury": 150 },
+      "transport": { "budget": 5, "midrange": 15, "luxury": 30 }
+    }
+  }
+}

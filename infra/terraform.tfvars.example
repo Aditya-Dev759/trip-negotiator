@@ -1,0 +1,15 @@
+# Copy this file to terraform.tfvars and fill in your values
+
+aws_region = "us-east-1"
+project_name = "tripnegotiator"
+environment = "dev"
+
+# Get your Groq API key from https://console.groq.com
+# This will be stored in SSM SecureString
+groq_api_key = "gsk_your_groq_api_key_here"
+
+# Your email for initial Cognito user
+cognito_user_email = "admin@tripnegotiator.example.com"
+
+# Max rounds before force-finalize
+max_negotiation_rounds = 3

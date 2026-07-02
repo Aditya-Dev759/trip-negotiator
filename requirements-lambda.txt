@@ -1,0 +1,15 @@
+# Runtime-only dependencies for the container-image Lambdas (api, itinerary_agent,
+# budget_agent, logistics_agent, booking_agent). Deliberately excludes dev/test-only
+# packages from requirements.txt (uvicorn, pytest, pytest-mock, flake8, moto) --
+# those are for local iteration only and would just bloat the image.
+#
+# supervisor stays a plain zip Lambda (no third-party imports), so it is NOT
+# built from this image -- see infra/lambda.tf for the split rationale.
+boto3==1.28.85
+botocore==1.31.85
+requests==2.31.0
+python-dotenv==1.0.0
+certifi>=2024.2.2
+fastapi>=0.109.0,<1.0
+mangum>=0.17.0
+ddgs>=9.0.0

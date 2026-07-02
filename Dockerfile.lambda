@@ -1,0 +1,32 @@
+# Shared base image for every TripNegotiator Lambda that has third-party
+# dependencies (FastAPI/Mangum for the API entrypoint, ddgs for the four
+# negotiation agents that call shared.web_search). Built ONCE and reused by
+# all five functions -- each aws_lambda_function overrides which handler to
+# run via image_config.command in infra/lambda.tf, so we don't need five
+# near-identical Dockerfiles.
+#
+# Why a container image instead of a zip archive (like the original
+# archive_file-based lambda.tf used)? The previous zip approach only bundled
+# hand-picked .py files and never actually installed ddgs/fastapi/mangum into
+# the package -- it would have thrown ModuleNotFoundError on first invoke.
+# Those libraries (especially ddgs's transitive deps) include platform-specific
+# wheels that are painful to cross-compile for Lambda from a Windows dev
+# machine with a plain `pip install -t`. Building inside this Lambda-runtime
+# base image guarantees Lambda-compatible (manylinux) wheels every time,
+# which is the AWS-documented approach for Lambdas with non-trivial deps.
+#
+# Build & push with build-lambda-image.sh / build-lambda-image.bat (repo root).
+FROM public.ecr.aws/lambda/python:3.11
+
+COPY requirements-lambda.txt ${LAMBDA_TASK_ROOT}/requirements-lambda.txt
+RUN pip install --no-cache-dir -r ${LAMBDA_TASK_ROOT}/requirements-lambda.txt -t ${LAMBDA_TASK_ROOT}
+
+COPY api/ ${LAMBDA_TASK_ROOT}/api/
+COPY shared/ ${LAMBDA_TASK_ROOT}/shared/
+COPY agents/ ${LAMBDA_TASK_ROOT}/agents/
+COPY data/ ${LAMBDA_TASK_ROOT}/data/
+
+# No CMD here on purpose -- each Lambda function supplies its own handler
+# path (e.g. "api.main.handler" or "agents.itinerary_agent.handler.lambda_handler")
+# via Terraform's image_config.command, since this one image backs all five
+# functions.

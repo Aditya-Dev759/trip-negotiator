@@ -1,0 +1,34 @@
+{
+  "seasonalNotes": {
+    "tokyo": {
+      "bestSeason": "spring-fall",
+      "closures": [],
+      "weatherWarnings": ["Typhoon season: Aug-Oct"]
+    },
+    "paris": {
+      "bestSeason": "spring-fall",
+      "closures": [],
+      "weatherWarnings": ["Rain: Nov-Mar"]
+    },
+    "bali": {
+      "bestSeason": "dry",
+      "closures": [],
+      "weatherWarnings": ["Rainy season: Nov-Mar"]
+    },
+    "nyc": {
+      "bestSeason": "spring-fall",
+      "closures": [],
+      "weatherWarnings": ["Winter: Dec-Feb, summer heat: Jul-Aug"]
+    },
+    "bangkok": {
+      "bestSeason": "cool-dry",
+      "closures": [],
+      "weatherWarnings": ["Hot & humid: Mar-May", "Monsoon: May-Oct"]
+    },
+    "barcelona": {
+      "bestSeason": "spring-fall",
+      "closures": [],
+      "weatherWarnings": ["Rain: Nov-Feb"]
+    }
+  }
+}
