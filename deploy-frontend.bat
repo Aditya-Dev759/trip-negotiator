@@ -1,5 +1,17 @@
 @echo off
-REM Deploy frontend to S3 + CloudFront (Windows)
+REM Deploy frontend to S3 static website hosting (Windows).
+REM
+REM Originally this served the frontend through CloudFront with a private S3
+REM origin. A real terraform apply against the AWS Academy Learner Lab
+REM account hit AccessDenied on cloudfront:CreateOriginAccessControl, the
+REM legacy cloudfront:CreateCloudFrontOriginAccessIdentity, and finally
+REM cloudfront:CreateDistribution itself -- the Learner Lab's voclabs role
+REM grants no CloudFront distribution-creation permission at all. See the
+REM long comment on aws_s3_bucket_public_access_block.frontend in
+REM infra/frontend.tf for the full explanation. This script now targets the
+REM S3 static website endpoint directly (plain HTTP, no CDN, no HTTPS)
+REM instead of a CloudFront domain, and there's no distribution to
+REM invalidate.
 
 setlocal enabledelayedexpansion
 
@@ -7,8 +19,7 @@ echo Reading Terraform outputs...
 cd infra
 for /f "delims=" %%i in ('terraform output -raw api_endpoint 2^>nul') do set API_URL=%%i
 for /f "delims=" %%i in ('terraform output -raw frontend_bucket 2^>nul') do set BUCKET=%%i
-for /f "delims=" %%i in ('terraform output -raw cloudfront_distribution_id 2^>nul') do set DISTRIBUTION_ID=%%i
-for /f "delims=" %%i in ('terraform output -raw cloudfront_domain 2^>nul') do set DOMAIN=%%i
+for /f "delims=" %%i in ('terraform output -raw frontend_website_endpoint 2^>nul') do set WEBSITE_ENDPOINT=%%i
 for /f "delims=" %%i in ('terraform output -raw cognito_user_pool_id 2^>nul') do set USER_POOL_ID=%%i
 for /f "delims=" %%i in ('terraform output -raw cognito_spa_client_id 2^>nul') do set SPA_CLIENT_ID=%%i
 cd ..
@@ -38,15 +49,9 @@ cd ..
 echo Uploading to S3...
 aws s3 sync frontend\out\ s3://!BUCKET!/ --delete --cache-control "public, max-age=3600"
 
-if "!DISTRIBUTION_ID!"=="" (
-  echo Warning: Could not get CloudFront distribution ID -- skipping cache invalidation
-) else (
-  echo Invalidating CloudFront cache...
-  aws cloudfront create-invalidation --distribution-id !DISTRIBUTION_ID! --paths "/*"
-)
-
 echo.
 echo =========================================
 echo Frontend deployed successfully!
-echo URL: https://!DOMAIN!
+echo URL: http://!WEBSITE_ENDPOINT!
+echo (plain HTTP, no CDN/HTTPS -- see infra/frontend.tf comment for why)
 echo =========================================

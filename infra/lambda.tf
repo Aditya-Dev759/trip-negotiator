@@ -119,7 +119,9 @@ resource "aws_lambda_function" "api" {
       STATE_MACHINE_ARN  = aws_sfn_state_machine.trip_negotiation.arn
       # Restricts FastAPI's CORSMiddleware to real origins in AWS instead of
       # the "*" used for local dev -- see api/main.py. Comma-separated.
-      ALLOWED_ORIGINS = "https://${aws_cloudfront_distribution.frontend.domain_name},http://localhost:3000"
+      # http, not https: the frontend is served from a plain S3 static
+      # website endpoint, not CloudFront (see infra/frontend.tf for why).
+      ALLOWED_ORIGINS = "http://${aws_s3_bucket_website_configuration.frontend.website_endpoint},http://localhost:3000"
     }
   }
 

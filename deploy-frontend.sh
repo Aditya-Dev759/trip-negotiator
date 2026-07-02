@@ -1,13 +1,23 @@
 #!/bin/bash
-# Deploy frontend to S3 + CloudFront
+# Deploy frontend to S3 static website hosting.
+#
+# Originally this served the frontend through CloudFront with a private S3
+# origin. A real `terraform apply` against the AWS Academy Learner Lab
+# account hit AccessDenied on cloudfront:CreateOriginAccessControl, the
+# legacy cloudfront:CreateCloudFrontOriginAccessIdentity, and finally
+# cloudfront:CreateDistribution itself -- the Learner Lab's `voclabs` role
+# grants no CloudFront distribution-creation permission at all. See the long
+# comment on aws_s3_bucket_public_access_block.frontend in infra/frontend.tf
+# for the full explanation. This script now targets the S3 static website
+# endpoint directly (plain HTTP, no CDN, no HTTPS) instead of a CloudFront
+# domain, and there's no distribution to invalidate.
 set -e
 
 echo "Reading Terraform outputs..."
 cd infra
 API_URL=$(terraform output -raw api_endpoint 2>/dev/null || echo "")
 BUCKET=$(terraform output -raw frontend_bucket 2>/dev/null || echo "")
-DISTRIBUTION_ID=$(terraform output -raw cloudfront_distribution_id 2>/dev/null || echo "")
-DOMAIN=$(terraform output -raw cloudfront_domain 2>/dev/null || echo "")
+WEBSITE_ENDPOINT=$(terraform output -raw frontend_website_endpoint 2>/dev/null || echo "")
 USER_POOL_ID=$(terraform output -raw cognito_user_pool_id 2>/dev/null || echo "")
 SPA_CLIENT_ID=$(terraform output -raw cognito_spa_client_id 2>/dev/null || echo "")
 cd ..
@@ -37,15 +47,9 @@ cd ..
 echo "Uploading to S3..."
 aws s3 sync frontend/out/ s3://$BUCKET/ --delete --cache-control "public, max-age=3600"
 
-if [ -z "$DISTRIBUTION_ID" ]; then
-  echo "Warning: Could not get CloudFront distribution ID -- skipping cache invalidation"
-else
-  echo "Invalidating CloudFront cache..."
-  aws cloudfront create-invalidation --distribution-id $DISTRIBUTION_ID --paths "/*"
-fi
-
 echo ""
 echo "========================================="
 echo "Frontend deployed successfully!"
-echo "URL: https://$DOMAIN"
+echo "URL: http://$WEBSITE_ENDPOINT"
+echo "(plain HTTP, no CDN/HTTPS -- see infra/frontend.tf comment for why)"
 echo "========================================="

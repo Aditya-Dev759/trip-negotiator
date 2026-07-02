@@ -21,10 +21,13 @@ resource "aws_apigatewayv2_api" "trip_api" {
   protocol_type = "HTTP"
 
   cors_configuration {
-    # Restricted to the deployed frontend + local dev, not "*" -- the
-    # CloudFront domain is only known after that resource is created, which
-    # Terraform resolves automatically via this reference.
-    allow_origins = ["https://${aws_cloudfront_distribution.frontend.domain_name}", "http://localhost:3000"]
+    # Restricted to the deployed frontend + local dev, not "*". The frontend
+    # is served over plain HTTP from an S3 static website endpoint, not
+    # HTTPS via CloudFront -- see infra/frontend.tf for why (CloudFront
+    # distribution creation is denied entirely in this AWS Academy Learner
+    # Lab account). The website endpoint is only known after that resource
+    # is created, which Terraform resolves automatically via this reference.
+    allow_origins = ["http://${aws_s3_bucket_website_configuration.frontend.website_endpoint}", "http://localhost:3000"]
     allow_methods = ["POST", "GET", "OPTIONS"]
     allow_headers = ["*"]
   }

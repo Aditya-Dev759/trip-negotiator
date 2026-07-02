@@ -63,7 +63,11 @@ resource "aws_cloudwatch_metric_alarm" "lambda_duration" {
   metric_name         = "Duration"
   namespace           = "AWS/Lambda"
   period              = 300
-  statistic           = "p95"
+  # Percentile statistics (p95, p99, etc.) go in extended_statistic, not
+  # statistic -- the statistic argument only accepts SampleCount/Average/
+  # Sum/Minimum/Maximum. Passing "p95" there is rejected by the provider,
+  # which only surfaced once this was actually applied against real AWS.
+  extended_statistic = "p95"
   # Alarm at 80% of the function's configured timeout -- catches "about to
   # start timing out" before it actually does.
   threshold          = each.value.timeout * 1000 * 0.8

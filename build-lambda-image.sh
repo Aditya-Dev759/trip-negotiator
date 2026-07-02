@@ -23,7 +23,14 @@ echo "Logging in to ECR: ${REPO_URI}"
 aws ecr get-login-password --region "${AWS_REGION}" | docker login --username AWS --password-stdin "${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
 
 echo "Building ${REPO_URI}:${IMAGE_TAG} (linux/arm64)"
-docker buildx build --platform linux/arm64 -f Dockerfile.lambda -t "${REPO_URI}:${IMAGE_TAG}" --push .
+# --provenance=false --sbom=false: Buildx 0.10+ attaches build provenance/SBOM
+# attestations to pushed images by default, which wraps the image in a
+# multi-manifest (OCI image index) format. AWS Lambda's container runtime
+# rejects that with "image manifest, config or layer media type ... is not
+# supported" even though the image itself is fine and `docker pull`/`run`
+# handle it without issue -- this only surfaced once a real `terraform apply`
+# tried to create a Lambda function from the pushed image.
+docker buildx build --platform linux/arm64 --provenance=false --sbom=false -f Dockerfile.lambda -t "${REPO_URI}:${IMAGE_TAG}" --push .
 
 echo "Pushed ${REPO_URI}:${IMAGE_TAG}"
 echo "Now run: cd infra && terraform apply"

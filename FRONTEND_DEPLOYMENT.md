@@ -3,48 +3,56 @@
 ## Architecture
 
 ```
-User → CloudFront (CDN) → S3 (Static Files) → API Gateway → Lambda Agents
+User -> S3 Static Website Hosting -> API Gateway -> Lambda Agents
 ```
+
+**Note:** this originally served the frontend through CloudFront in front of
+a private S3 bucket. A real `terraform apply` against the AWS Academy
+Learner Lab account was denied on `cloudfront:CreateOriginAccessControl`,
+the legacy `cloudfront:CreateCloudFrontOriginAccessIdentity`, and finally
+`cloudfront:CreateDistribution` itself -- the Learner Lab's `voclabs` role
+grants no CloudFront distribution-creation permission at all. See the long
+comment on `aws_s3_bucket_public_access_block.frontend` in
+`infra/frontend.tf` for the full explanation and the production fix. The
+frontend now serves directly from the S3 bucket's own static website
+endpoint: plain HTTP, no CDN, no HTTPS, no edge caching.
 
 ## Deployment Flow
 
-1. **Build**: Next.js exports to static HTML/CSS/JS
-2. **Upload**: Static files → S3 bucket (versioned, private)
-3. **Serve**: CloudFront CDN distributes globally with caching
+1. **Build**: Next.js exports to static HTML/CSS/JS (`output: 'export'` in `next.config.js`, so `next build` alone produces `frontend/out/`)
+2. **Upload**: Static files -> S3 bucket (versioned, public-read via bucket policy -- see the trade-off note above)
+3. **Serve**: S3's native static website hosting serves `index.html` directly over HTTP
 4. **API**: Frontend calls API Gateway for trip planning
 
 ## Files & Costs
 
-- **S3**: ~$0.01/month for static files (< 100MB)
-- **CloudFront**: ~$0.085/GB egress (demo usage << $1)
-- **Total**: ~$2-3/month in production
+- **S3**: ~$0.01/month for static files (< 100MB) plus negligible request/egress cost at demo volume
+- **No CloudFront charge** since it isn't used in this account
 
 ## Deployment Steps
 
 ### One-time Setup (after Terraform apply)
 
 ```bash
-# Get outputs from Terraform
 cd infra
 terraform output frontend_bucket
-terraform output cloudfront_domain
-terraform output cloudfront_distribution_id
+terraform output frontend_website_endpoint
 ```
 
 ### Deploy Frontend
 
 ```bash
-# Using script (recommended)
-bash deploy-frontend.sh   # Linux/Mac
-deploy-frontend.bat       # Windows
+# Using script (recommended) -- reads Terraform outputs, bakes them into
+# frontend/.env.local, builds, and syncs to S3 automatically.
+bash deploy-frontend.sh    # Linux/Mac/Git Bash
+deploy-frontend.bat        # Windows (PowerShell/cmd)
 
 # Or manual steps
 cd frontend
 npm install
-npm run build
-npm run export
-aws s3 sync out/ s3://BUCKET_NAME/ --delete
-aws cloudfront create-invalidation --distribution-id DIST_ID --paths "/*"
+npm run build   # produces frontend/out/ directly, no separate export step
+cd ..
+aws s3 sync frontend/out/ s3://BUCKET_NAME/ --delete
 ```
 
 ### Configure API Integration
@@ -60,22 +68,17 @@ NEXT_PUBLIC_API_URL=https://YOUR_API_ID.execute-api.us-east-1.amazonaws.com/dev
 ## Monitoring
 
 ```bash
-# View S3 bucket
+# View S3 bucket contents
 aws s3 ls s3://BUCKET_NAME/ --recursive
 
-# Invalidate cache
-aws cloudfront create-invalidation --distribution-id DIST_ID --paths "/*"
-
-# View CloudFront stats
-aws cloudfront get-distribution --id DIST_ID
+# Website endpoint URL
+terraform -chdir=infra output -raw frontend_website_endpoint
 ```
 
 ## Rollback
 
 ```bash
-# CloudFront caches for 1 hour by default
-# To rollback: redeploy previous version + invalidate
-
-# Or disable distribution (stop serving)
-aws cloudfront delete-distribution --id DIST_ID
+# S3 versioning is enabled (infra/frontend.tf), so a previous object version
+# can be restored directly, or just redeploy the previous frontend build.
+aws s3api list-object-versions --bucket BUCKET_NAME --prefix index.html
 ```

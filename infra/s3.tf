@@ -73,6 +73,11 @@ resource "aws_s3_bucket_lifecycle_configuration" "trip_data" {
     id     = "expire-old-versions"
     status = "Enabled"
 
+    # Empty filter = applies to every object in the bucket. See the same
+    # comment in frontend.tf -- surfaced as a deprecation warning only once
+    # a real `terraform apply` actually ran.
+    filter {}
+
     noncurrent_version_expiration {
       noncurrent_days = 30
     }

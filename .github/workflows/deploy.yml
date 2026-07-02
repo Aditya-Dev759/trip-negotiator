@@ -50,6 +50,8 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+          TF_VAR_groq_api_key: ${{ secrets.GROQ_API_KEY }}
+          TF_VAR_cognito_user_email: ${{ secrets.COGNITO_USER_EMAIL }}
         run: |
           terraform init
           terraform plan
@@ -103,6 +105,8 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
           TF_VAR_lambda_image_tag: ${{ github.sha }}
+          TF_VAR_groq_api_key: ${{ secrets.GROQ_API_KEY }}
+          TF_VAR_cognito_user_email: ${{ secrets.COGNITO_USER_EMAIL }}
         run: |
           terraform init
           terraform apply -auto-approve
