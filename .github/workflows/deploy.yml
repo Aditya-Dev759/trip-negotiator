@@ -119,3 +119,44 @@ jobs:
         run: |
           terraform init
           terraform apply -auto-approve
+
+      # Frontend build+deploy, driven by this job's own Terraform outputs.
+      # This closes the gap deploy-frontend.bat/.sh hits when run from a
+      # developer's machine: since infra/ uses backend "local" and this job's
+      # state file only ever exists on this ephemeral runner, no local
+      # machine's `terraform output` can ever see what CI itself just
+      # created. Reading the outputs here, in the same job/filesystem right
+      # after the apply that produced them, is the one place they're
+      # actually available.
+      - name: Read Terraform outputs for frontend build
+        working-directory: infra
+        run: |
+          echo "API_URL=$(terraform output -raw api_endpoint)" >> $GITHUB_ENV
+          echo "BUCKET=$(terraform output -raw frontend_bucket)" >> $GITHUB_ENV
+          echo "USER_POOL_ID=$(terraform output -raw cognito_user_pool_id)" >> $GITHUB_ENV
+          echo "SPA_CLIENT_ID=$(terraform output -raw cognito_spa_client_id)" >> $GITHUB_ENV
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          cat > .env.local << EOF
+          NEXT_PUBLIC_API_URL=${{ env.API_URL }}
+          NEXT_PUBLIC_COGNITO_USER_POOL_ID=${{ env.USER_POOL_ID }}
+          NEXT_PUBLIC_COGNITO_CLIENT_ID=${{ env.SPA_CLIENT_ID }}
+          EOF
+          npm install
+          npm run build
+
+      - name: Deploy frontend to S3
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+        run: |
+          aws s3 sync frontend/out/ "s3://${{ env.BUCKET }}/" --delete --cache-control "public, max-age=3600"
+          echo "Frontend deployed: http://$(cd infra && terraform output -raw frontend_website_endpoint)"
