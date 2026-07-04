@@ -1,0 +1,39 @@
+name: destroy
+
+# Manual-only: never runs on push/PR. This tears down real, billable AWS
+# resources -- it must only ever run when someone deliberately clicks "Run
+# workflow" and types the confirmation phrase below.
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "destroy" (exactly) to confirm you want to tear down all live AWS resources'
+        required: true
+
+jobs:
+  destroy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check confirmation input
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "destroy" ]; then
+            echo "Confirmation input did not match 'destroy' exactly -- aborting without touching AWS."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      # Ubuntu GitHub-hosted runners ship PowerShell Core (pwsh) preinstalled
+      # -- reuses the same destroy-all.ps1 a developer runs locally instead
+      # of maintaining a second, parallel bash copy of the same resource
+      # list that could drift out of sync with it.
+      - name: Run destroy-all.ps1
+        shell: pwsh
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+        run: |
+          # Script also needs boto3 for the S3 version-purge step.
+          pip install boto3 --break-system-packages --quiet
+          ./destroy-all.ps1 -Force
