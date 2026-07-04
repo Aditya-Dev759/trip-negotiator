@@ -71,6 +71,15 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+          # Terraform validates every declared variable (variables.tf) up
+          # front before resolving -target, even ones the targeted resource
+          # never references -- without these two, this step hangs/fails on
+          # an interactive "Enter a value:" prompt for var.cognito_user_email
+          # in CI (no TTY, so it just errors out), before ever reaching the
+          # later, correctly-configured "Terraform Apply" step. Confirmed for
+          # real via a live Actions run.
+          TF_VAR_groq_api_key: ${{ secrets.GROQ_API_KEY }}
+          TF_VAR_cognito_user_email: ${{ secrets.COGNITO_USER_EMAIL }}
         run: |
           terraform init
           terraform apply -auto-approve -target=aws_ecr_repository.lambda_image
