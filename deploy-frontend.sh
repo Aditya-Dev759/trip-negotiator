@@ -38,6 +38,21 @@ NEXT_PUBLIC_COGNITO_USER_POOL_ID=${USER_POOL_ID}
 NEXT_PUBLIC_COGNITO_CLIENT_ID=${SPA_CLIENT_ID}
 ENVEOF
 
+# Force a fully clean build. NEXT_PUBLIC_* vars are inlined into the JS
+# bundle at build time -- if frontend/.next/ still has cache from an
+# earlier build (e.g. local `npm run dev` testing, which intentionally
+# leaves the Cognito vars blank to disable the login gate locally),
+# Next.js can carry stale inlined values into a later production build,
+# silently shipping a bundle where AUTH_ENABLED evaluates false even
+# though .env.local now has real values. This bit us once already: the
+# deployed site skipped the login screen entirely and POST /trips came
+# back 401 from the API Gateway JWT authorizer, which was still correctly
+# enforcing auth the frontend never attempted.
+if [ -d "frontend/.next" ]; then
+  echo "Clearing stale Next.js build cache..."
+  rm -rf frontend/.next
+fi
+
 echo "Building Next.js frontend (API=$API_URL, Cognito pool=$USER_POOL_ID)..."
 cd frontend
 npm install

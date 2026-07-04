@@ -12,11 +12,11 @@
   <text x="90" y="385" text-anchor="middle" font-size="13" font-weight="600" fill="#312e81">Traveler</text>
   <text x="90" y="402" text-anchor="middle" font-size="11" fill="#4338ca">(Browser)</text>
 
-  <!-- CloudFront + S3 frontend -->
+  <!-- S3 static website frontend -->
   <rect x="200" y="80" width="170" height="70" rx="10" fill="#dbeafe" stroke="#1d4ed8" stroke-width="1.5"/>
-  <text x="285" y="105" text-anchor="middle" font-size="13" font-weight="600" fill="#1e3a8a">CloudFront CDN</text>
-  <text x="285" y="122" text-anchor="middle" font-size="11" fill="#1e40af">+ S3 (static Next.js</text>
-  <text x="285" y="136" text-anchor="middle" font-size="11" fill="#1e40af">export build)</text>
+  <text x="285" y="105" text-anchor="middle" font-size="13" font-weight="600" fill="#1e3a8a">S3 Static Website</text>
+  <text x="285" y="122" text-anchor="middle" font-size="11" fill="#1e40af">(static Next.js export</text>
+  <text x="285" y="136" text-anchor="middle" font-size="11" fill="#1e40af">build, plain HTTP)</text>
 
   <!-- API Gateway -->
   <rect x="200" y="360" width="170" height="60" rx="10" fill="#fef3c7" stroke="#b45309" stroke-width="1.5"/>

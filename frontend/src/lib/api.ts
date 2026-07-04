@@ -1,5 +1,5 @@
 import axios, { AxiosInstance } from 'axios'
-import { getCachedIdToken } from './auth'
+import { getCurrentSession } from './auth'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
@@ -18,11 +18,24 @@ const api: AxiosInstance = axios.create({
 // (Cognito not configured, e.g. local dev, or the user isn't signed in)
 // this is a no-op and the request goes out unauthenticated exactly as
 // before this feature existed.
-api.interceptors.request.use((config) => {
-  const token = getCachedIdToken()
-  if (token) {
+//
+// This must go through getCurrentSession() (async, calls CognitoUser's own
+// getSession()), not a synchronous read of some CognitoUser instance's
+// .signInUserSession -- CognitoUserPool.getCurrentUser() constructs a brand
+// new CognitoUser object on every call, and that field is only populated as
+// a side effect of calling .getSession() on that specific instance. A
+// previous synchronous getCachedIdToken() helper read .signInUserSession
+// off a throwaway instance that had never had .getSession() called on it,
+// so it silently returned null forever -- valid tokens sat in localStorage
+// the whole time (confirmed via a real signed-in session's JWT: correct
+// aud/iss, not expired) but were never attached, and every POST /trips came
+// back 401 from the Cognito JWT authorizer with no way to tell why from the
+// response alone.
+api.interceptors.request.use(async (config) => {
+  const session = await getCurrentSession()
+  if (session) {
     config.headers = config.headers || {}
-    config.headers.Authorization = `Bearer ${token}`
+    config.headers.Authorization = `Bearer ${session.getIdToken().getJwtToken()}`
   }
   return config
 })

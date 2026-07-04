@@ -49,6 +49,18 @@ export interface AuthUser {
 // Wraps CognitoUser.getSession's callback API in a Promise. Resolves null
 // (not an error) when there's simply no signed-in user yet -- that's the
 // normal "not logged in" state, not a failure.
+//
+// This is the ONLY correct way to read the current session synchronously
+// from the outside: CognitoUserPool.getCurrentUser() constructs a brand new
+// CognitoUser object on every call, and that object's .signInUserSession
+// field starts out null -- it's only populated as a side effect of calling
+// .getSession() on that specific instance. A previous helper here
+// (getCachedIdToken) read .signInUserSession directly off a throwaway
+// getCurrentUser() instance without ever calling .getSession() on it, so it
+// always returned null even when a fully valid session was sitting in
+// localStorage -- every POST /trips silently went out unauthenticated and
+// came back 401 from the Cognito JWT authorizer. api.ts's axios interceptor
+// now calls this function (awaited) before every request instead.
 export function getCurrentSession(): Promise<CognitoUserSession | null> {
   if (!AUTH_ENABLED) return Promise.resolve(null)
   const cognitoUser = getPool().getCurrentUser()
@@ -63,27 +75,6 @@ export function getCurrentSession(): Promise<CognitoUserSession | null> {
       resolve(session)
     })
   })
-}
-
-// Synchronous best-effort accessor used by the axios interceptor in api.ts
-// -- amazon-cognito-identity-js caches the last session in localStorage, so
-// this reads that cache directly rather than round-tripping through the
-// getSession callback on every single API call. Returns null if there's no
-// cached session or it's expired; api.ts treats a missing token as "send
-// the request unauthenticated" rather than blocking it.
-export function getCachedIdToken(): string | null {
-  if (!AUTH_ENABLED) return null
-  const cognitoUser = getPool().getCurrentUser()
-  if (!cognitoUser) return null
-  // CognitoUser caches its last session on the instance after any prior
-  // getSession() call in this page load; if nothing has called getSession()
-  // yet this returns null rather than blocking synchronously on a network
-  // round trip, which is fine -- AuthContext always calls getCurrentSession()
-  // once on mount before rendering the rest of the app.
-  const cached = (cognitoUser as unknown as { signInUserSession: CognitoUserSession | null })
-    .signInUserSession
-  if (!cached || !cached.isValid()) return null
-  return cached.getIdToken().getJwtToken()
 }
 
 export function signUp(email: string, password: string): Promise<void> {

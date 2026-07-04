@@ -40,17 +40,40 @@ data "archive_file" "supervisor_lambda" {
     content  = file("${path.module}/../shared/s3_utils.py")
     filename = "shared/s3_utils.py"
   }
+  # agents/supervisor/handler.py does `from shared.logging_utils import
+  # get_logger` -- this file was missing from the zip's hand-picked file
+  # list (added after this list was first written), so every real
+  # invocation of the supervisor Lambda failed at import time with
+  # "Runtime.ImportModuleError: No module named 'shared.logging_utils'".
+  # This only surfaced once a negotiation actually reached the Finalize
+  # state in Step Functions -- CheckConvergence routes there once
+  # allApproved is true or round >= 3, so short/simple negotiations hit it
+  # immediately. Stdlib-only (logging/os/sys), safe to bundle directly.
+  source {
+    content  = file("${path.module}/../shared/logging_utils.py")
+    filename = "shared/logging_utils.py"
+  }
 }
 
 resource "aws_lambda_function" "supervisor" {
-  filename      = data.archive_file.supervisor_lambda.output_path
-  function_name = "${var.project_name}-supervisor"
-  role          = data.aws_iam_role.lab_role.arn
-  handler       = "handler.lambda_handler"
-  runtime       = "python3.11"
-  architectures = ["arm64"]
-  timeout       = 30
-  memory_size   = 256
+  filename = data.archive_file.supervisor_lambda.output_path
+  # Without this, `filename` is just a local path string that never changes
+  # even when the zip's actual contents do, so Terraform has no signal to
+  # ever call UpdateFunctionCode -- confirmed for real: adding
+  # shared/logging_utils.py to the archive_file source list above produced a
+  # genuinely different zip (different data.archive_file.supervisor_lambda
+  # id/hash on refresh), but `terraform apply` still reported "No changes.
+  # Your infrastructure matches the configuration." and the supervisor
+  # Lambda kept running the old broken code that was missing that import.
+  # source_code_hash gives Terraform the actual content hash to diff against.
+  source_code_hash = data.archive_file.supervisor_lambda.output_base64sha256
+  function_name     = "${var.project_name}-supervisor"
+  role              = data.aws_iam_role.lab_role.arn
+  handler           = "handler.lambda_handler"
+  runtime           = "python3.11"
+  architectures     = ["arm64"]
+  timeout           = 30
+  memory_size       = 256
 
   tracing_config {
     mode = "Active"
@@ -122,6 +145,12 @@ resource "aws_lambda_function" "api" {
       # http, not https: the frontend is served from a plain S3 static
       # website endpoint, not CloudFront (see infra/frontend.tf for why).
       ALLOWED_ORIGINS = "http://${aws_s3_bucket_website_configuration.frontend.website_endpoint},http://localhost:3000"
+      # Tells Mangum to strip this stage prefix ("/dev") from the incoming
+      # API Gateway path before handing it to FastAPI's router -- without
+      # this, every route except POST /trips 404s, because FastAPI never
+      # sees a route matching "/dev/locations/search" etc. See api/main.py's
+      # Mangum handler comment for the full explanation.
+      API_GATEWAY_STAGE = var.environment
     }
   }
 

@@ -2,6 +2,7 @@ import os
 import json
 import boto3
 from datetime import datetime
+from decimal import Decimal
 from typing import Dict, List, Any
 
 _dynamodb = None
@@ -28,6 +29,29 @@ def get_table():
     return _get_resource().Table(os.environ.get("DYNAMODB_TABLE", "tripnegotiator-negotiations"))
 
 
+def _floats_to_decimal(value: Any) -> Any:
+    """Recursively convert native Python floats to decimal.Decimal.
+
+    boto3's DynamoDB resource-level API (Table.put_item) rejects native
+    floats outright with "TypeError: Float types are not supported. Use
+    Decimal types instead." -- this surfaced for real once a trip was
+    submitted with a numeric budget (goal["budget"] is a plain float from
+    the frontend's JSON body). Every item written to DynamoDB in this module
+    is nested/arbitrary (goal dicts, agent proposals, final plans), so this
+    is applied generically here rather than patching each float field by
+    hand at every call site. Uses Decimal(str(x)) rather than Decimal(x)
+    directly to avoid binary-float imprecision (e.g. Decimal(2500.1) contains
+    trailing-digit noise; Decimal(str(2500.1)) does not).
+    """
+    if isinstance(value, float):
+        return Decimal(str(value))
+    if isinstance(value, dict):
+        return {k: _floats_to_decimal(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_floats_to_decimal(v) for v in value]
+    return value
+
+
 def create_trip_record(trip_id: str, user_id: str, goal: Dict) -> Dict:
     """
     Create initial trip record in DynamoDB.
@@ -45,7 +69,7 @@ def create_trip_record(trip_id: str, user_id: str, goal: Dict) -> Dict:
         "PK": f"TRIP#{trip_id}",
         "SK": "META",
         "userId": user_id,
-        "goal": goal,
+        "goal": _floats_to_decimal(goal),
         "status": "initializing",
         "round": 0,
         "timestamp": datetime.utcnow().isoformat(),
@@ -68,7 +92,7 @@ def write_agent_proposal(trip_id: str, round_num: int, agent_name: str, proposal
     item = {
         "PK": f"TRIP#{trip_id}",
         "SK": f"ROUND#{round_num}#AGENT#{agent_name}",
-        "proposal": proposal,
+        "proposal": _floats_to_decimal(proposal),
         "status": proposal.get("status", "proposed"),
         "objection": proposal.get("objection"),
         "round": round_num,
@@ -105,8 +129,8 @@ def finalize_trip(trip_id: str, final_plan: Dict, unresolved_objections: List = 
     item = {
         "PK": f"TRIP#{trip_id}",
         "SK": "FINAL",
-        "proposal": final_plan,
-        "unresolved_objections": unresolved_objections or [],
+        "proposal": _floats_to_decimal(final_plan),
+        "unresolved_objections": _floats_to_decimal(unresolved_objections or []),
         "status": "finalized",
         "timestamp": datetime.utcnow().isoformat(),
     }

@@ -760,7 +760,7 @@ export default function NegotiationProgress({
                           Proposed Itinerary Plan:
                         </p>
                         <p className="text-slate-600 pl-3.5 italic">
-                          "{liveItinerary.summary || 'Created proposed travel segments...'}"
+                          &quot;{liveItinerary.summary || 'Created proposed travel segments...'}&quot;
                         </p>
                         {liveItinerary.images && liveItinerary.images.length > 0 && (
                           <div className="flex gap-2 pl-3.5 overflow-x-auto">

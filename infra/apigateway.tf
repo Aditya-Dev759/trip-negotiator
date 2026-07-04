@@ -42,7 +42,12 @@ resource "aws_apigatewayv2_stage" "default" {
 
   access_log_settings {
     destination_arn = aws_cloudwatch_log_group.api_logs.arn
-    format          = "$context.requestId $context.error.message $context.error.type $context.status $context.integrationErrorMessage"
+    # $context.error.type is a REST API (v1) only context variable -- HTTP
+    # APIs (v2, what this project uses) reject it with "context variables
+    # are not supported", which only surfaced once a real
+    # aws_apigatewayv2_stage was actually applied. $context.error.message is
+    # the HTTP API-supported equivalent and is kept.
+    format = "$context.requestId $context.error.message $context.status $context.integrationErrorMessage"
   }
 
   tags = local.common_tags
@@ -96,6 +101,25 @@ resource "aws_lambda_permission" "apigw_api" {
   function_name = aws_lambda_function.api.function_name
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${aws_apigatewayv2_api.trip_api.execution_arn}/*/*"
+
+  # Without this, `terraform apply -replace=aws_lambda_function.api` (needed
+  # to force a container-image Lambda to actually re-pull a new :latest
+  # digest -- see infra/lambda.tf's comment on image_uri) silently orphans
+  # this grant: AWS deletes the function's resource-based policy the moment
+  # the underlying function object is destroyed, but aws_lambda_function.api
+  # keeps the same function_name/ARN after recreation, so this resource's own
+  # inputs never change and Terraform has no reason to think it needs to be
+  # re-applied. Every request then gets AWS's own AccessDenied on
+  # lambda:InvokeFunction, which API Gateway surfaces to clients as a bare
+  # {"message":"Internal Server Error"} -- no CloudWatch Lambda logs at all,
+  # since the function is never actually invoked. Hit this twice for real
+  # during deployment before adding this rule. replace_triggered_by forces
+  # Terraform to recreate this permission in the same apply any time the
+  # function it's attached to is replaced, regardless of whether this
+  # resource's own arguments changed.
+  lifecycle {
+    replace_triggered_by = [aws_lambda_function.api]
+  }
 }
 
 output "api_endpoint" {

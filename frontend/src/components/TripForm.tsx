@@ -137,7 +137,7 @@ export default function TripForm({ onTripSubmitted }: TripFormProps) {
             Plan Your Trip
           </h2>
           <p className="text-sm text-slate-500 mt-1">
-            Tell our AI agents what you're after &mdash; they'll negotiate the best possible plan.
+            Tell our AI agents what you&apos;re after &mdash; they&apos;ll negotiate the best possible plan.
           </p>
         </motion.div>
 
@@ -319,7 +319,7 @@ export default function TripForm({ onTripSubmitted }: TripFormProps) {
               <div>
                 <span className="text-sm font-semibold text-slate-700">I need a passport for this trip</span>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Uncheck for domestic travel, or if you're a citizen of the destination country.
+                  Uncheck for domestic travel, or if you&apos;re a citizen of the destination country.
                 </p>
               </div>
               <button

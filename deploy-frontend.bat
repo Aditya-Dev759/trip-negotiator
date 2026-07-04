@@ -40,14 +40,55 @@ REM there are gitignored anyway, so this is safe to run repeatedly.
   echo NEXT_PUBLIC_COGNITO_CLIENT_ID=!SPA_CLIENT_ID!
 ) > frontend\.env.local
 
+REM Force a fully clean build. NEXT_PUBLIC_* vars are inlined into the JS
+REM bundle at build time -- if frontend\.next\ still has cache from an
+REM earlier build (e.g. local "npm run dev" testing, which intentionally
+REM leaves the Cognito vars blank to disable the login gate locally),
+REM Next.js can carry stale inlined values into a later production build,
+REM silently shipping a bundle where AUTH_ENABLED evaluates false even
+REM though .env.local now has real values. This bit us once already: the
+REM deployed site skipped the login screen entirely and POST /trips came
+REM back 401 from the API Gateway JWT authorizer, which was still correctly
+REM enforcing auth the frontend never attempted.
+if exist "frontend\.next" (
+  echo Clearing stale Next.js build cache...
+  rmdir /s /q "frontend\.next"
+)
+
 echo Building Next.js frontend (API=!API_URL!, Cognito pool=!USER_POOL_ID!)...
 cd frontend
 call npm install
 call npm run build
+if errorlevel 1 (
+  echo.
+  echo ERROR: npm run build failed -- see the errors above. Nothing was
+  echo uploaded to S3, and the previous deploy is still live. Fix the build
+  echo error and re-run this script.
+  cd ..
+  exit /b 1
+)
+if not exist "out" (
+  echo.
+  echo ERROR: frontend\out\ was not created even though the build reported
+  echo success. Check next.config.js has output: 'export' set.
+  cd ..
+  exit /b 1
+)
 cd ..
 
 echo Uploading to S3...
 aws s3 sync frontend\out\ s3://!BUCKET!/ --delete --cache-control "public, max-age=3600"
+if errorlevel 1 (
+  echo.
+  echo ERROR: aws s3 sync failed -- see the AWS error above. Nothing new was
+  echo uploaded to S3. The most common cause is expired Learner Lab
+  echo credentials: go to your AWS Academy Learner Lab dashboard, make sure
+  echo the lab session is still running, open "AWS Details", and copy the
+  echo fresh aws_access_key_id / aws_secret_access_key / aws_session_token
+  echo into your AWS credentials ^(run "aws configure" or edit
+  echo %%USERPROFILE%%\.aws\credentials^), then re-run this script.
+  exit /b 1
+)
 
 echo.
 echo =========================================

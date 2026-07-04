@@ -392,4 +392,15 @@ def health():
 # directly instead (see local_api_server.py).
 from mangum import Mangum
 
-handler = Mangum(app)
+# api_gateway_base_path strips the API Gateway stage prefix (e.g. "/dev")
+# from the incoming path before Mangum hands it to FastAPI's router.
+# API_GATEWAY_STAGE is set by infra/lambda.tf to var.environment (the same
+# value aws_apigatewayv2_stage.default uses as its stage name). Without
+# this, every request through the deployed https://.../dev/... URL arrives
+# at FastAPI as "/dev/locations/search" etc., which matches no route and
+# returns FastAPI's own 404 {"detail": "Not Found"} -- this stayed hidden
+# during earlier testing because POST /trips's 401 (from the Cognito JWT
+# authorizer, which runs before Lambda is ever invoked) looked like a
+# plausible, unrelated failure and didn't exercise this code path.
+_stage = os.environ.get("API_GATEWAY_STAGE", "").strip("/")
+handler = Mangum(app, api_gateway_base_path=f"/{_stage}" if _stage else None)
