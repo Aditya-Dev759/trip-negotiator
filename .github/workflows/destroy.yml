@@ -33,6 +33,14 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+          # destroy-all.ps1 calls the AWS CLI directly (not Terraform), and
+          # none of those calls pass --region. Terraform steps don't need
+          # this because main.tf reads var.aws_region from terraform.tfvars,
+          # but the raw AWS CLI on a fresh runner has no default region
+          # configured, so every call here would fail with "You must specify
+          # a region" without this.
+          AWS_REGION: us-east-1
+          AWS_DEFAULT_REGION: us-east-1
         run: |
           # Script also needs boto3 for the S3 version-purge step.
           pip install boto3 --break-system-packages --quiet
