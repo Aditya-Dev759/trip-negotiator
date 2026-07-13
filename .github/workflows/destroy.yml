@@ -44,4 +44,10 @@ jobs:
         run: |
           # Script also needs boto3 for the S3 version-purge step.
           pip install boto3 --break-system-packages --quiet
-          ./destroy-all.ps1 -Force
+          # NOTE: the version of destroy-all.ps1 actually running in CI
+          # defaults to a dry run and requires -Yes to delete anything --
+          # -Force alone was a silent no-op (confirmed via a live Actions
+          # run: it printed "Mode: DRY RUN" and deleted nothing). Passing
+          # both here so this works whether the local or CI copy's -Force
+          # switch does anything or not.
+          ./destroy-all.ps1 -Force -Yes
