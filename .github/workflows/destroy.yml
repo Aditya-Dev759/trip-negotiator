@@ -1,188 +1,39 @@
-#!/usr/bin/env bash
-#
-# destroy-all.sh — Full teardown of all "tripnegotiator" AWS resources.
-#
-# Why this exists: infra/ uses Terraform's local backend, and every CI run's
-# state file only ever lives on the ephemeral GitHub Actions runner that
-# created it — gone the moment that job ends. That means `terraform destroy`
-# almost never has an accurate picture of what's actually live in AWS (see
-# the RepositoryAlreadyExistsException / ResourceInUseException errors this
-# has already produced). This script sidesteps Terraform state entirely: it
-# discovers resources directly from AWS by name prefix and deletes them with
-# the AWS CLI, in dependency-safe order, with force-delete behavior where AWS
-# otherwise refuses (non-empty ECR repos, non-empty S3 buckets, protected
-# DynamoDB tables).
-#
-# Scope: S3 (frontend bucket), Lambda functions + their log groups, the HTTP
-# API, the DynamoDB table, remaining CloudWatch log groups, the ECR repo,
-# the Cognito user pool (+ custom domain if any), and Step Functions state
-# machines if present. IAM is intentionally NOT touched — this project only
-# uses the pre-existing AWS Academy `LabRole`, no custom roles are created.
-#
-# If infra/*.tf defines other resource types not listed above (SQS,
-# EventBridge, etc.), add a matching section — the pattern below is the
-# same for every service: list by prefix, delete by name/ARN.
-#
-# Usage:
-#   ./destroy-all.sh                 # dry run — lists what WOULD be deleted, changes nothing
-#   ./destroy-all.sh --yes           # actually deletes (asks you to type the prefix to confirm)
-#   ./destroy-all.sh --yes --force   # deletes with no confirmation prompt (e.g. CI use)
-#
-# Requires: AWS CLI v2 and valid credentials in the environment (same vars
-# as the GitHub Actions workflow: AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY /
-# AWS_SESSION_TOKEN) or a working default profile. On Windows, run this via
-# Git Bash or WSL — aws-cli works the same there as in PowerShell.
+name: destroy
 
-set -euo pipefail
+# Manual-only: never runs on push/PR. This tears down real, billable AWS
+# resources -- it must only ever run when someone deliberately clicks "Run
+# workflow" and types the confirmation phrase below.
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "destroy" (exactly) to confirm you want to tear down all live AWS resources'
+        required: true
 
-PREFIX="tripnegotiator"
-REGION="${AWS_REGION:-us-east-1}"
-DRY_RUN=true
-SKIP_CONFIRM=false
+jobs:
+  destroy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check confirmation input
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "destroy" ]; then
+            echo "Confirmation input did not match 'destroy' exactly -- aborting without touching AWS."
+            exit 1
+          fi
 
-for arg in "$@"; do
-  case "$arg" in
-    --yes) DRY_RUN=false ;;
-    --force) SKIP_CONFIRM=true ;;
-    *) echo "Unknown argument: $arg" >&2; exit 1 ;;
-  esac
-done
+      - uses: actions/checkout@v4
 
-run() {
-  if $DRY_RUN; then
-    echo "  [DRY RUN] $*"
-  else
-    echo "  + $*"
-    "$@"
-  fi
-}
-
-section() { echo; echo "== $1 =="; }
-
-echo "Region: $REGION"
-echo "Mode:   $([ "$DRY_RUN" = true ] && echo 'DRY RUN (no changes)' || echo 'LIVE — will delete resources')"
-
-if ! $DRY_RUN && ! $SKIP_CONFIRM; then
-  read -rp "Type '$PREFIX' to confirm permanent deletion of all matching AWS resources: " CONFIRM
-  if [ "$CONFIRM" != "$PREFIX" ]; then
-    echo "Confirmation did not match. Aborting."
-    exit 1
-  fi
-fi
-
-### 1. S3 buckets #############################################################
-section "S3 buckets"
-BUCKETS=$(aws s3api list-buckets --query "Buckets[?starts_with(Name, '${PREFIX}')].Name" --output text)
-for bucket in $BUCKETS; do
-  echo "Bucket: $bucket"
-  run aws s3 rm "s3://$bucket" --recursive
-
-  versioning=$(aws s3api get-bucket-versioning --bucket "$bucket" --query "Status" --output text 2>/dev/null || echo "None")
-  if [ "$versioning" = "Enabled" ] || [ "$versioning" = "Suspended" ]; then
-    if $DRY_RUN; then
-      echo "  [DRY RUN] would purge remaining object versions and delete markers in $bucket"
-    else
-      vers=$(aws s3api list-object-versions --bucket "$bucket" --query '{Objects: Versions[].{Key:Key,VersionId:VersionId}}' --output json)
-      if [ "$(echo "$vers" | grep -c '"Key"' || true)" -gt 0 ]; then
-        echo "$vers" > /tmp/tn_versions.json
-        aws s3api delete-objects --bucket "$bucket" --delete file:///tmp/tn_versions.json >/dev/null 2>&1 || true
-      fi
-      markers=$(aws s3api list-object-versions --bucket "$bucket" --query '{Objects: DeleteMarkers[].{Key:Key,VersionId:VersionId}}' --output json)
-      if [ "$(echo "$markers" | grep -c '"Key"' || true)" -gt 0 ]; then
-        echo "$markers" > /tmp/tn_markers.json
-        aws s3api delete-objects --bucket "$bucket" --delete file:///tmp/tn_markers.json >/dev/null 2>&1 || true
-      fi
-    fi
-  fi
-
-  run aws s3api delete-bucket --bucket "$bucket" --region "$REGION"
-done
-[ -z "$BUCKETS" ] && echo "  (none found)"
-
-### 2. Lambda functions ########################################################
-section "Lambda functions"
-FUNCTIONS=$(aws lambda list-functions --region "$REGION" \
-  --query "Functions[?starts_with(FunctionName, '${PREFIX}')].FunctionName" --output text)
-for fn in $FUNCTIONS; do
-  run aws lambda delete-function --function-name "$fn" --region "$REGION"
-  # Lambda log groups aren't deleted automatically with the function
-  if $DRY_RUN; then
-    echo "  [DRY RUN] aws logs delete-log-group --log-group-name /aws/lambda/$fn"
-  else
-    aws logs delete-log-group --log-group-name "/aws/lambda/$fn" --region "$REGION" 2>/dev/null || true
-  fi
-done
-[ -z "$FUNCTIONS" ] && echo "  (none found)"
-
-### 3. API Gateway (HTTP API) ##################################################
-section "API Gateway HTTP APIs"
-APIS=$(aws apigatewayv2 get-apis --region "$REGION" \
-  --query "Items[?starts_with(Name, '${PREFIX}')].ApiId" --output text)
-for api_id in $APIS; do
-  run aws apigatewayv2 delete-api --api-id "$api_id" --region "$REGION"
-done
-[ -z "$APIS" ] && echo "  (none found)"
-
-### 4. DynamoDB tables ##########################################################
-section "DynamoDB tables"
-TABLES=$(aws dynamodb list-tables --region "$REGION" \
-  --query "TableNames[?starts_with(@, '${PREFIX}')]" --output text)
-for table in $TABLES; do
-  protection=$(aws dynamodb describe-table --table-name "$table" --region "$REGION" \
-    --query "Table.DeletionProtectionEnabled" --output text 2>/dev/null || echo "False")
-  if [ "$protection" = "True" ]; then
-    run aws dynamodb update-table --table-name "$table" --region "$REGION" --no-deletion-protection-enabled
-  fi
-  run aws dynamodb delete-table --table-name "$table" --region "$REGION"
-done
-[ -z "$TABLES" ] && echo "  (none found)"
-
-### 5. CloudWatch Log Groups (whatever's left) ##################################
-section "CloudWatch Log Groups"
-LOG_GROUPS=$(aws logs describe-log-groups --region "$REGION" \
-  --query "logGroups[?contains(logGroupName, '${PREFIX}')].logGroupName" --output text)
-for lg in $LOG_GROUPS; do
-  run aws logs delete-log-group --log-group-name "$lg" --region "$REGION"
-done
-[ -z "$LOG_GROUPS" ] && echo "  (none found)"
-
-### 6. ECR repositories ##########################################################
-section "ECR repositories"
-REPOS=$(aws ecr describe-repositories --region "$REGION" \
-  --query "repositories[?starts_with(repositoryName, '${PREFIX}')].repositoryName" --output text 2>/dev/null || true)
-for repo in $REPOS; do
-  run aws ecr delete-repository --repository-name "$repo" --region "$REGION" --force
-done
-[ -z "$REPOS" ] && echo "  (none found)"
-
-### 7. Cognito User Pools #########################################################
-section "Cognito User Pools"
-POOLS=$(aws cognito-idp list-user-pools --max-results 60 --region "$REGION" \
-  --query "UserPools[?starts_with(Name, '${PREFIX}')].Id" --output text)
-for pool_id in $POOLS; do
-  domain=$(aws cognito-idp describe-user-pool --user-pool-id "$pool_id" --region "$REGION" \
-    --query "UserPool.Domain" --output text 2>/dev/null || echo "None")
-  if [ "$domain" != "None" ] && [ -n "$domain" ]; then
-    run aws cognito-idp delete-user-pool-domain --domain "$domain" --user-pool-id "$pool_id" --region "$REGION"
-  fi
-  run aws cognito-idp delete-user-pool --user-pool-id "$pool_id" --region "$REGION"
-done
-[ -z "$POOLS" ] && echo "  (none found)"
-
-### 8. Step Functions state machines (if the config defines any) ################
-section "Step Functions state machines"
-STATE_MACHINES=$(aws stepfunctions list-state-machines --region "$REGION" \
-  --query "stateMachines[?starts_with(name, '${PREFIX}')].stateMachineArn" --output text 2>/dev/null || true)
-for sm in $STATE_MACHINES; do
-  run aws stepfunctions delete-state-machine --state-machine-arn "$sm" --region "$REGION"
-done
-[ -z "$STATE_MACHINES" ] && echo "  (none found)"
-
-echo
-if $DRY_RUN; then
-  echo "Dry run complete. Nothing was deleted. Re-run with --yes to actually delete the resources listed above."
-else
-  echo "Teardown complete."
-  echo "Local Terraform state (infra/terraform.tfstate, if you have one on this machine) is now stale —"
-  echo "delete it before your next 'terraform init && terraform apply' so Terraform starts from a clean slate."
-fi
+      # Ubuntu GitHub-hosted runners ship PowerShell Core (pwsh) preinstalled
+      # -- reuses the same destroy-all.ps1 a developer runs locally instead
+      # of maintaining a second, parallel bash copy of the same resource
+      # list that could drift out of sync with it.
+      - name: Run destroy-all.ps1
+        shell: pwsh
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+        run: |
+          # Script also needs boto3 for the S3 version-purge step.
+          pip install boto3 --break-system-packages --quiet
+          ./destroy-all.ps1 -Force
