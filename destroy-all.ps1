@@ -1,201 +1,252 @@
-# destroy-all.ps1
-#
-# Manually tears down every real AWS resource this project creates. Written
-# because infra/ uses backend "local" and this project has been applied both
-# from a developer machine AND from GitHub Actions (a separate, ephemeral
-# runner) -- each apply's Terraform state only ever exists on the machine
-# that ran it, so there is no single state file anywhere that reliably
-# describes everything currently live. `terraform destroy` from any one
-# machine can only destroy what that machine's own state file knows about,
-# which may be empty even while real resources exist in AWS. This script
-# deletes by resource name directly via the AWS CLI instead, so it works
-# regardless of which state (if any) is accurate.
-#
-# Safe to re-run: every step below tolerates "already deleted / not found"
-# errors and just moves on, so run this as many times as you want.
-#
-# Usage:
-#   powershell -ExecutionPolicy Bypass -File destroy-all.ps1
-# or, from inside PowerShell:
-#   .\destroy-all.ps1
-#
-# Pass -Force (or run with $env:CI = "true", which GitHub Actions sets
-# automatically) to skip the interactive confirmation prompt -- there's no
-# terminal attached to type "yes" into from a CI runner, and Read-Host would
-# otherwise just hang until the job times out. Used by
-# .github/workflows/destroy.yml, which gates on its own separate typed
-# confirmation in the workflow_dispatch input before ever reaching this
-# script, so skipping the prompt here isn't removing a safety check -- it's
-# moving it to the one place that's actually interactive (the Actions "Run
-# workflow" form).
+<#
+.SYNOPSIS
+  Full teardown of all "tripnegotiator" AWS resources.
+
+.DESCRIPTION
+  infra/ uses Terraform's local backend, and every CI run's state file only
+  ever lives on the ephemeral GitHub Actions runner that created it — gone
+  the moment that job ends. That means `terraform destroy` almost never has
+  an accurate picture of what's actually live in AWS (see the
+  RepositoryAlreadyExistsException / ResourceInUseException errors this has
+  already produced). This script sidesteps Terraform state entirely: it
+  discovers resources directly from AWS by name prefix and deletes them with
+  the AWS CLI, in dependency-safe order, with force-delete behavior where AWS
+  otherwise refuses (non-empty ECR repos, non-empty S3 buckets, protected
+  DynamoDB tables).
+
+  Scope: S3 (frontend bucket), Lambda functions + their log groups, the HTTP
+  API, the DynamoDB table, remaining CloudWatch log groups, the ECR repo,
+  the Cognito user pool (+ custom domain if any), and Step Functions state
+  machines if present. IAM is intentionally NOT touched — this project only
+  uses the pre-existing AWS Academy `LabRole`, no custom roles are created.
+
+  If infra/*.tf defines other resource types not listed above (SQS,
+  EventBridge, etc.), add a matching block — the pattern is the same for
+  every service: list by prefix, delete by name/ARN.
+
+.PARAMETER Yes
+  Actually delete resources. Without this, the script only prints what it
+  would do (dry run) and changes nothing.
+
+.PARAMETER Force
+  Skip the interactive typed confirmation. Combine with -Yes for
+  non-interactive use.
+
+.EXAMPLE
+  .\destroy-all.ps1
+  Dry run — lists what would be deleted, deletes nothing.
+
+.EXAMPLE
+  .\destroy-all.ps1 -Yes
+  Deletes everything matching the prefix, after you type the prefix to confirm.
+
+.EXAMPLE
+  .\destroy-all.ps1 -Yes -Force
+  Deletes everything with no prompt.
+
+.NOTES
+  Requires AWS CLI v2 and valid credentials in the environment (same vars as
+  the GitHub Actions workflow: AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY /
+  AWS_SESSION_TOKEN) or a working default profile.
+#>
 
 param(
+    [switch]$Yes,
     [switch]$Force
 )
 
-$ErrorActionPreference = "Continue"
+$ErrorActionPreference = "Stop"
 
-Write-Host "=== TripNegotiator: destroying all AWS resources ===" -ForegroundColor Yellow
-Write-Host "Uses whatever AWS credentials are currently active (aws configure / Learner Lab AWS Details)." -ForegroundColor Yellow
+$Prefix = "tripnegotiator"
+$Region = if ($env:AWS_REGION) { $env:AWS_REGION } else { "us-east-1" }
+$DryRun = -not $Yes
 
-if (-not $Force -and $env:CI -ne "true") {
-    $confirm = Read-Host "Type 'yes' to continue"
-    if ($confirm -ne "yes") {
-        Write-Host "Aborted."
-        exit 0
+function Write-Section($name) {
+    Write-Host ""
+    Write-Host "== $name ==" -ForegroundColor Cyan
+}
+
+function Invoke-Action {
+    param(
+        [string]$Description,
+        [scriptblock]$Action
+    )
+    if ($DryRun) {
+        Write-Host "  [DRY RUN] $Description" -ForegroundColor Yellow
+    } else {
+        Write-Host "  + $Description" -ForegroundColor Green
+        & $Action | Out-Null
+    }
+}
+
+# Wraps a listing call so a missing service/permission/region issue just
+# means "treat as empty" instead of killing the whole script.
+function Get-AwsJson {
+    param([string]$CliCommand)
+    try {
+        $raw = Invoke-Expression "$CliCommand --output json" 2>$null
+        if (-not $raw) { return $null }
+        return $raw | ConvertFrom-Json
+    } catch {
+        return $null
+    }
+}
+
+Write-Host "Region: $Region"
+Write-Host "Mode:   $(if ($DryRun) { 'DRY RUN (no changes)' } else { 'LIVE - will delete resources' })"
+
+if (-not $DryRun -and -not $Force) {
+    $confirm = Read-Host "Type '$Prefix' to confirm permanent deletion of all matching AWS resources"
+    if ($confirm -ne $Prefix) {
+        Write-Host "Confirmation did not match. Aborting."
+        exit 1
+    }
+}
+
+### 1. S3 buckets ##############################################################
+Write-Section "S3 buckets"
+$buckets = (Get-AwsJson "aws s3api list-buckets").Buckets | Where-Object { $_.Name -like "$Prefix*" }
+if ($buckets) {
+    foreach ($b in $buckets) {
+        $bucket = $b.Name
+        Write-Host "Bucket: $bucket"
+        Invoke-Action "aws s3 rm s3://$bucket --recursive" { aws s3 rm "s3://$bucket" --recursive }
+
+        $versioning = (Get-AwsJson "aws s3api get-bucket-versioning --bucket $bucket").Status
+        if ($versioning -eq "Enabled" -or $versioning -eq "Suspended") {
+            if ($DryRun) {
+                Write-Host "  [DRY RUN] would purge remaining object versions and delete markers in $bucket" -ForegroundColor Yellow
+            } else {
+                $versions = Get-AwsJson "aws s3api list-object-versions --bucket $bucket"
+                if ($versions.Versions) {
+                    $payload = @{ Objects = $versions.Versions | ForEach-Object { @{ Key = $_.Key; VersionId = $_.VersionId } } } | ConvertTo-Json -Depth 5
+                    $tmp = New-TemporaryFile
+                    Set-Content -Path $tmp -Value $payload -Encoding utf8
+                    aws s3api delete-objects --bucket $bucket --delete "file://$tmp" | Out-Null
+                    Remove-Item $tmp -Force
+                }
+                if ($versions.DeleteMarkers) {
+                    $payload2 = @{ Objects = $versions.DeleteMarkers | ForEach-Object { @{ Key = $_.Key; VersionId = $_.VersionId } } } | ConvertTo-Json -Depth 5
+                    $tmp2 = New-TemporaryFile
+                    Set-Content -Path $tmp2 -Value $payload2 -Encoding utf8
+                    aws s3api delete-objects --bucket $bucket --delete "file://$tmp2" | Out-Null
+                    Remove-Item $tmp2 -Force
+                }
+            }
+        }
+
+        Invoke-Action "aws s3api delete-bucket --bucket $bucket" { aws s3api delete-bucket --bucket $bucket --region $Region }
     }
 } else {
-    Write-Host "Running non-interactively (-Force or CI=true) -- skipping confirmation prompt." -ForegroundColor Yellow
+    Write-Host "  (none found)"
 }
 
-function Step($name, [scriptblock]$action) {
-    Write-Host ""
-    Write-Host "--- $name ---" -ForegroundColor Cyan
-    try {
-        & $action
-    } catch {
-        Write-Host "  (non-fatal) $($_.Exception.Message)" -ForegroundColor DarkYellow
+### 2. Lambda functions ########################################################
+Write-Section "Lambda functions"
+$functions = (Get-AwsJson "aws lambda list-functions --region $Region").Functions | Where-Object { $_.FunctionName -like "$Prefix*" }
+if ($functions) {
+    foreach ($f in $functions) {
+        $fn = $f.FunctionName
+        Invoke-Action "aws lambda delete-function --function-name $fn" { aws lambda delete-function --function-name $fn --region $Region }
+        if ($DryRun) {
+            Write-Host "  [DRY RUN] aws logs delete-log-group --log-group-name /aws/lambda/$fn" -ForegroundColor Yellow
+        } else {
+            aws logs delete-log-group --log-group-name "/aws/lambda/$fn" --region $Region 2>$null | Out-Null
+        }
     }
+} else {
+    Write-Host "  (none found)"
 }
 
-# 1. Step Functions state machine
-Step "Step Functions state machine" {
-    aws stepfunctions delete-state-machine --state-machine-arn arn:aws:states:us-east-1:260318502395:stateMachine:tripnegotiator-negotiation-workflow 2>&1 | Out-String | Write-Host
+### 3. API Gateway (HTTP API) ##################################################
+Write-Section "API Gateway HTTP APIs"
+$apis = (Get-AwsJson "aws apigatewayv2 get-apis --region $Region").Items | Where-Object { $_.Name -like "$Prefix*" }
+if ($apis) {
+    foreach ($a in $apis) {
+        Invoke-Action "aws apigatewayv2 delete-api --api-id $($a.ApiId)" { aws apigatewayv2 delete-api --api-id $a.ApiId --region $Region }
+    }
+} else {
+    Write-Host "  (none found)"
 }
 
-# 2. CloudWatch alarms (2 per Lambda x 6 Lambdas + 1 Step Functions alarm)
-Step "CloudWatch alarms" {
-    aws cloudwatch delete-alarms --alarm-names `
-        tripnegotiator-api-errors tripnegotiator-api-duration `
-        tripnegotiator-itinerary_agent-errors tripnegotiator-itinerary_agent-duration `
-        tripnegotiator-budget_agent-errors tripnegotiator-budget_agent-duration `
-        tripnegotiator-logistics_agent-errors tripnegotiator-logistics_agent-duration `
-        tripnegotiator-booking_agent-errors tripnegotiator-booking_agent-duration `
-        tripnegotiator-supervisor-errors tripnegotiator-supervisor-duration `
-        tripnegotiator-negotiation-execution-failures 2>&1 | Out-String | Write-Host
-}
-
-# 3. SNS topic
-Step "SNS alerts topic" {
-    aws sns delete-topic --topic-arn arn:aws:sns:us-east-1:260318502395:tripnegotiator-alerts 2>&1 | Out-String | Write-Host
-}
-
-# 4. API Gateway HTTP API (cascades: routes, integrations, stage, authorizer)
-Step "API Gateway HTTP API" {
-    $apis = aws apigatewayv2 get-apis --query "Items[?Name=='tripnegotiator-http-api'].ApiId" --output text
-    if ($apis) {
-        foreach ($apiId in ($apis -split "\s+")) {
-            if ($apiId) {
-                Write-Host "  deleting API $apiId"
-                aws apigatewayv2 delete-api --api-id $apiId 2>&1 | Out-String | Write-Host
+### 4. DynamoDB tables ##########################################################
+Write-Section "DynamoDB tables"
+$tables = (Get-AwsJson "aws dynamodb list-tables --region $Region").TableNames | Where-Object { $_ -like "$Prefix*" }
+if ($tables) {
+    foreach ($t in $tables) {
+        $desc = Get-AwsJson "aws dynamodb describe-table --table-name $t --region $Region"
+        if ($desc.Table.DeletionProtectionEnabled -eq $true) {
+            Invoke-Action "aws dynamodb update-table --table-name $t --no-deletion-protection-enabled" {
+                aws dynamodb update-table --table-name $t --region $Region --no-deletion-protection-enabled
             }
         }
-    } else {
-        Write-Host "  no matching API found"
+        Invoke-Action "aws dynamodb delete-table --table-name $t" { aws dynamodb delete-table --table-name $t --region $Region }
     }
+} else {
+    Write-Host "  (none found)"
 }
 
-# 5. Lambda functions
-Step "Lambda functions" {
-    foreach ($fn in @(
-        "tripnegotiator-api",
-        "tripnegotiator-itinerary-agent",
-        "tripnegotiator-budget-agent",
-        "tripnegotiator-logistics-agent",
-        "tripnegotiator-booking-agent",
-        "tripnegotiator-supervisor"
-    )) {
-        Write-Host "  deleting $fn"
-        aws lambda delete-function --function-name $fn 2>&1 | Out-String | Write-Host
+### 5. CloudWatch Log Groups (whatever's left) #################################
+Write-Section "CloudWatch Log Groups"
+$logGroups = (Get-AwsJson "aws logs describe-log-groups --region $Region").logGroups | Where-Object { $_.logGroupName -like "*$Prefix*" }
+if ($logGroups) {
+    foreach ($lg in $logGroups) {
+        Invoke-Action "aws logs delete-log-group --log-group-name $($lg.logGroupName)" { aws logs delete-log-group --log-group-name $lg.logGroupName --region $Region }
     }
+} else {
+    Write-Host "  (none found)"
 }
 
-# 6. Cognito user pool (deletes both app clients with it)
-Step "Cognito user pool" {
-    $pools = aws cognito-idp list-user-pools --max-results 60 --query "UserPools[?Name=='tripnegotiator-user-pool'].Id" --output text
-    if ($pools) {
-        foreach ($poolId in ($pools -split "\s+")) {
-            if ($poolId) {
-                Write-Host "  deleting user pool $poolId"
-                aws cognito-idp delete-user-pool --user-pool-id $poolId 2>&1 | Out-String | Write-Host
+### 6. ECR repositories ##########################################################
+Write-Section "ECR repositories"
+$repos = (Get-AwsJson "aws ecr describe-repositories --region $Region").repositories | Where-Object { $_.repositoryName -like "$Prefix*" }
+if ($repos) {
+    foreach ($r in $repos) {
+        Invoke-Action "aws ecr delete-repository --repository-name $($r.repositoryName) --force" {
+            aws ecr delete-repository --repository-name $r.repositoryName --region $Region --force
+        }
+    }
+} else {
+    Write-Host "  (none found)"
+}
+
+### 7. Cognito User Pools ########################################################
+Write-Section "Cognito User Pools"
+$pools = (Get-AwsJson "aws cognito-idp list-user-pools --max-results 60 --region $Region").UserPools | Where-Object { $_.Name -like "$Prefix*" }
+if ($pools) {
+    foreach ($p in $pools) {
+        $poolId = $p.Id
+        $desc = Get-AwsJson "aws cognito-idp describe-user-pool --user-pool-id $poolId --region $Region"
+        $domain = $desc.UserPool.Domain
+        if ($domain) {
+            Invoke-Action "aws cognito-idp delete-user-pool-domain --domain $domain --user-pool-id $poolId" {
+                aws cognito-idp delete-user-pool-domain --domain $domain --user-pool-id $poolId --region $Region
             }
         }
-    } else {
-        Write-Host "  no matching user pool found"
+        Invoke-Action "aws cognito-idp delete-user-pool --user-pool-id $poolId" { aws cognito-idp delete-user-pool --user-pool-id $poolId --region $Region }
     }
+} else {
+    Write-Host "  (none found)"
 }
 
-# 7. DynamoDB table
-Step "DynamoDB table" {
-    aws dynamodb delete-table --table-name tripnegotiator-negotiations 2>&1 | Out-String | Write-Host
-}
-
-# 8. S3 buckets (both are versioned -- must purge all versions + delete
-# markers before the bucket itself can be deleted; plain `aws s3 rm` only
-# adds delete markers on a versioned bucket, it doesn't remove old versions)
-Step "S3 buckets (purge versions + delete)" {
-    $accountId = aws sts get-caller-identity --query Account --output text
-    if (-not $accountId) { $accountId = "260318502395" }
-    $buckets = @("tripnegotiator-frontend-$accountId", "tripnegotiator-data-$accountId")
-
-    python -c "
-import boto3, sys
-s3 = boto3.client('s3')
-buckets = sys.argv[1:]
-for b in buckets:
-    try:
-        paginator = s3.get_paginator('list_object_versions')
-        for page in paginator.paginate(Bucket=b):
-            objs = [{'Key': v['Key'], 'VersionId': v['VersionId']} for v in page.get('Versions', [])]
-            objs += [{'Key': v['Key'], 'VersionId': v['VersionId']} for v in page.get('DeleteMarkers', [])]
-            if objs:
-                s3.delete_objects(Bucket=b, Delete={'Objects': objs})
-                print(f'{b}: purged {len(objs)} versions/markers')
-    except Exception as e:
-        print(f'{b}: {e}')
-" @buckets
-
-    foreach ($bucket in $buckets) {
-        Write-Host "  deleting bucket $bucket"
-        aws s3api delete-bucket --bucket $bucket 2>&1 | Out-String | Write-Host
+### 8. Step Functions state machines (if the config defines any) ###############
+Write-Section "Step Functions state machines"
+$stateMachines = (Get-AwsJson "aws stepfunctions list-state-machines --region $Region").stateMachines | Where-Object { $_.name -like "$Prefix*" }
+if ($stateMachines) {
+    foreach ($sm in $stateMachines) {
+        Invoke-Action "aws stepfunctions delete-state-machine --state-machine-arn $($sm.stateMachineArn)" {
+            aws stepfunctions delete-state-machine --state-machine-arn $sm.stateMachineArn --region $Region
+        }
     }
+} else {
+    Write-Host "  (none found)"
 }
-
-# 9. ECR repository (force removes any remaining images)
-Step "ECR repository" {
-    aws ecr delete-repository --repository-name tripnegotiator-lambda --force 2>&1 | Out-String | Write-Host
-}
-
-# 10. SSM parameter
-Step "SSM parameter (Groq key)" {
-    aws ssm delete-parameter --name /tripnegotiator/groq-key 2>&1 | Out-String | Write-Host
-}
-
-# 11. CloudWatch log groups (API Gateway access logs + any Lambda log groups
-# that exist because a function was actually invoked at least once -- these
-# are auto-created by AWS on first invoke, not created by Terraform)
-Step "CloudWatch log groups" {
-    foreach ($lg in @(
-        "/aws/apigateway/tripnegotiator-http-api",
-        "/aws/lambda/tripnegotiator-api",
-        "/aws/lambda/tripnegotiator-itinerary-agent",
-        "/aws/lambda/tripnegotiator-budget-agent",
-        "/aws/lambda/tripnegotiator-logistics-agent",
-        "/aws/lambda/tripnegotiator-booking-agent",
-        "/aws/lambda/tripnegotiator-supervisor"
-    )) {
-        Write-Host "  deleting log group $lg"
-        aws logs delete-log-group --log-group-name $lg 2>&1 | Out-String | Write-Host
-    }
-}
-
-# 12. AWS Budget + SNS email subscription -- only created when
-# TF_VAR_alert_email / var.alert_email is set (infra/budgets.tf,
-# infra/monitoring.tf both gate on it with count = var.alert_email != "" ? 1 : 0).
-# Uncomment and fill in if you ever set that variable:
-# Step "AWS Budget" {
-#     aws budgets delete-budget --account-id $accountId --budget-name tripnegotiator-monthly-guardrail 2>&1 | Out-String | Write-Host
-# }
 
 Write-Host ""
-Write-Host "=== Done. Some 'not found' messages above are expected (resources already gone or never created) and safe to ignore. ===" -ForegroundColor Green
+if ($DryRun) {
+    Write-Host "Dry run complete. Nothing was deleted. Re-run with -Yes to actually delete the resources listed above."
+} else {
+    Write-Host "Teardown complete."
+    Write-Host "Local Terraform state (infra\terraform.tfstate, if you have one on this machine) is now stale -"
+    Write-Host "delete it before your next 'terraform init' / 'terraform apply' so Terraform starts from a clean slate."
+}
